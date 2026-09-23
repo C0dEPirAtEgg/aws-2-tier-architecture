@@ -1,0 +1,14 @@
+# 웹 EC2에서 /etc/systemd/system/board.service 로 복사해서 사용
+[Unit]
+Description=Gunicorn - Flask 게시판
+After=network.target
+
+[Service]
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/ec2-user/aws-2-tier-architecture
+ExecStart=/home/ec2-user/aws-2-tier-architecture/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:8000 app:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

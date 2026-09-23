@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}{{ "글 수정" if mode == "edit" else "글쓰기" }}{% endblock %}
+
+{% block content %}
+  <h1 class="h4 mb-3">{{ "글 수정" if mode == "edit" else "글쓰기" }}</h1>
+
+  <form method="post" class="card card-body">
+    <div class="mb-3">
+      <label class="form-label" for="title">제목</label>
+      <input class="form-control" id="title" name="title" maxlength="200" value="{{ post.title or '' }}" required>
+    </div>
+
+    <div class="row">
+      <div class="col-md-6 mb-3">
+        <label class="form-label" for="author">작성자</label>
+        {% if mode == "edit" %}
+          <input class="form-control" id="author" value="{{ post.author }}" disabled>
+        {% else %}
+          <input class="form-control" id="author" name="author" maxlength="50" value="{{ post.author or '' }}" required>
+        {% endif %}
+      </div>
+      <div class="col-md-6 mb-3">
+        <label class="form-label" for="password">
+          비밀번호 {% if mode == "edit" %}<span class="text-muted small">(작성 시 입력한 비밀번호)</span>{% endif %}
+        </label>
+        <input class="form-control" id="password" name="password" type="password" maxlength="100" required>
+      </div>
+    </div>
+
+    <div class="mb-3">
+      <label class="form-label" for="content">내용</label>
+      <textarea class="form-control" id="content" name="content" rows="10" required>{{ post.content or '' }}</textarea>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button class="btn btn-primary" type="submit">{{ "수정" if mode == "edit" else "등록" }}</button>
+      {% if mode == "edit" %}
+        <a class="btn btn-secondary" href="{{ url_for('post_detail', post_id=post.id) }}">취소</a>
+      {% else %}
+        <a class="btn btn-secondary" href="{{ url_for('index') }}">취소</a>
+      {% endif %}
+    </div>
+  </form>
+{% endblock %}
