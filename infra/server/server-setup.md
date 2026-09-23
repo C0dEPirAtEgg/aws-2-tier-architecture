@@ -1,6 +1,6 @@
 # 서버 설정
 
-[services](../services/) 문서대로 AWS 리소스를 만든 뒤, EC2 안에서 진행하는 작업입니다.
+[AWS 리소스](../aws/) 문서대로 AWS 리소스를 만든 뒤, EC2 안에서 진행하는 작업입니다.
 
 ## 1. EC2 접속 (웹 EC2를 Bastion으로 사용)
 
@@ -24,7 +24,7 @@ sudo dnf install -y mariadb105-server
 sudo systemctl enable --now mariadb
 
 # 스키마 생성 (레포의 schema.sql 다운로드 후 실행)
-curl -O https://raw.githubusercontent.com/C0dEPirAtEgg/aws-2-tier-architecture/main/schema.sql
+curl -O https://raw.githubusercontent.com/C0dEPirAtEgg/aws-2-tier-architecture/main/app/schema.sql
 sudo mariadb < schema.sql
 ```
 
@@ -62,7 +62,7 @@ mariadb -h <DB EC2 프라이빗 IP> -u board -p board
 # 코드 받기
 cd ~
 git clone https://github.com/C0dEPirAtEgg/aws-2-tier-architecture.git
-cd aws-2-tier-architecture
+cd aws-2-tier-architecture/app
 
 # 가상환경 및 의존성 설치
 python3 -m venv venv
@@ -76,7 +76,7 @@ vi .env
 ### Gunicorn (systemd)
 
 ```bash
-sudo cp deploy/gunicorn.service /etc/systemd/system/board.service
+sudo cp ../infra/server/gunicorn.service /etc/systemd/system/board.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now board
 
@@ -88,7 +88,7 @@ curl http://127.0.0.1:8000/health
 ### Nginx
 
 ```bash
-sudo cp deploy/nginx.conf /etc/nginx/conf.d/board.conf
+sudo cp ../infra/server/nginx.conf /etc/nginx/conf.d/board.conf
 
 # 기본 설정에 default_server가 있으면 충돌하므로 제거
 grep -n "default_server" /etc/nginx/nginx.conf && sudo sed -i 's/ default_server//' /etc/nginx/nginx.conf

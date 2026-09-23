@@ -4,7 +4,7 @@
 
 ## EC2
 
-AWS의 가상 서버입니다. 웹 EC2에는 Nginx·Gunicorn·Flask를, DB EC2에는 MariaDB를 설치합니다. 서버 안에서 하는 작업은 [서버 설정](../docs/server-setup.md)을 참고하세요.
+AWS의 가상 서버입니다. 웹 EC2에는 Nginx·Gunicorn·Flask를, DB EC2에는 MariaDB를 설치합니다. 서버 안에서 하는 작업은 [서버 설정](../server/server-setup.md)을 참고하세요.
 
 | 항목 | 웹 EC2 (Tier 1) | DB EC2 (Tier 2) |
 | --- | --- | --- |

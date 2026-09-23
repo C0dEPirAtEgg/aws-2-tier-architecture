@@ -1,4 +1,4 @@
-# 앱 구조
+# 앱 (app/)
 
 Flask로 만든 단순한 게시판입니다. 인프라 실습에 집중할 수 있도록 ORM 없이 SQL을 직접 사용합니다.
 
@@ -12,7 +12,7 @@ Flask로 만든 단순한 게시판입니다. 인프라 실습에 집중할 수 
 ## 폴더 구조
 
 ```
-.
+app/
 ├── app.py              # Flask 라우트 (게시글/댓글 CRUD, /health)
 ├── db.py               # PyMySQL 연결 및 query/execute 헬퍼
 ├── schema.sql          # DB·테이블 생성 SQL (DB EC2에서 실행)
@@ -21,9 +21,6 @@ Flask로 만든 단순한 게시판입니다. 인프라 실습에 집중할 수 
 │   ├── index.html      #   글 목록
 │   ├── detail.html     #   글 상세 + 댓글
 │   └── form.html       #   글쓰기/수정 폼
-├── deploy/
-│   ├── gunicorn.service  # systemd 서비스 파일
-│   └── nginx.conf        # Nginx 리버스 프록시 설정
 ├── requirements.txt
 └── .env.example        # DB 접속 정보 예시
 ```
