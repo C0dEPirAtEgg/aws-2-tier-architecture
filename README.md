@@ -10,14 +10,25 @@ AWS에서 **웹 티어(EC2) + DB 티어(EC2)** 로 나뉜 2-Tier 구조를 직�
 
 인터넷에서 웹 EC2(Public Subnet)로 접속하고, 작성한 글이 DB EC2(Private Subnet)의 MariaDB에 저장되는 것을 확인했습니다.
 
-| 글 목록 (웹 EC2) | 글 상세 · 댓글 |
-| --- | --- |
-| ![글 목록](images/board_list.png) | ![글 상세](images/board_detail.png) |
-| **헬스 체크: 웹 EC2 → DB EC2 연결** | **DB EC2에 저장된 데이터** |
-| ![헬스 체크](images/health_check.png) | ![DB 조회](images/db_query4.png) |
+### 글 목록
 
-- 페이지 하단의 "응답한 웹 서버"가 웹 EC2(`ip-10-0-1-35`)의 호스트명입니다.
-- DB 조회는 DB EC2에서 실행한 결과로, 브라우저에서 쓴 글·댓글이 그대로 저장되어 있습니다.
+![글 목록](images/board_list.png)
+
+페이지 하단의 "응답한 웹 서버"가 웹 EC2(`ip-10-0-1-35`)의 호스트명입니다.
+
+### 글 상세 · 댓글
+
+![글 상세](images/board_detail.png)
+
+### 헬스 체크: 웹 EC2 → DB EC2 연결
+
+![헬스 체크](images/health_check.png)
+
+### DB EC2에 저장된 데이터
+
+![DB 조회](images/db_query4.png)
+
+DB EC2에서 조회한 결과로, 브라우저에서 쓴 글·댓글이 그대로 저장되어 있습니다.
 
 ## 폴더 구조
 
