@@ -7,7 +7,7 @@
 | 순서 | 어디서 | 작업 | 확인 방법 |
 | --- | --- | --- | --- |
 | 1 | 로컬(맥) | 웹 EC2, DB EC2 접속 | 프롬프트의 호스트명 |
-| 2 | DB EC2 | MariaDB 설치 · 스키마 · 계정 · 외부 접속 허용 | `SHOW GRANTS`, `ss -tlnp` |
+| 2 | DB EC2 | MariaDB 설치 · 보안 초기 설정 · 스키마 · 계정 · 외부 접속 허용 | `SHOW GRANTS`, `ss -tlnp` |
 | 3 | 웹 EC2 | 코드 · venv · `.env` · Gunicorn · Nginx | `curl /health` |
 | 4 | 브라우저 | 게시판 접속 | 글 목록 화면 |
 
@@ -69,7 +69,35 @@ systemctl is-active mariadb
 
 > `dnf install`이 멈추거나 실패하면 Private 라우팅 테이블에 `0.0.0.0/0 → NAT Gateway`가 있는지 확인하세요.
 
-### 2-2. 스키마 생성
+> **`mariadb` 명령에는 항상 `sudo`를 붙입니다.** MariaDB의 root 계정은 비밀번호 대신 "리눅스 root 사용자인가"로 로그인을 허용합니다. `sudo` 없이 실행하면 `Access denied for user 'ec2-user'@'localhost'`가 납니다.
+
+### 2-2. 보안 초기 설정 (mariadb-secure-installation)
+
+설치 직후의 MariaDB에는 테스트용 계정과 데이터베이스가 남아 있습니다. 실행하면 질문이 순서대로 나오고, 아래 표대로 답하면 됩니다.
+
+```bash
+# [DB EC2]
+sudo mariadb-secure-installation
+```
+
+| 질문 | 답 | 이유 |
+| --- | --- | --- |
+| `Enter current password for root` | `Enter` | 설치 직후라 비밀번호가 없음 |
+| `Switch to unix_socket authentication` | `n` | root는 이미 `sudo`로만 로그인되도록(unix_socket) 보호되어 있음 |
+| `Change the root password?` | `n` (선택) | `sudo mariadb`로 충분합니다. `Y`로 설정하면 `sudo mariadb -u root -p`로도 접속할 수 있고, `sudo mariadb`도 그대로 동작합니다 |
+| `Remove anonymous users?` | `Y` | 계정 없이 누구나 로그인할 수 있는 익명 계정 삭제 |
+| `Disallow root login remotely?` | `Y` | root는 DB EC2 안에서만 로그인 가능하게 |
+| `Remove test database and access to it?` | `Y` | 누구나 쓸 수 있는 `test` DB 삭제 |
+| `Reload privilege tables now?` | `Y` | 변경 사항 바로 적용 |
+
+```bash
+# [DB EC2] 확인: root 외에 이름이 빈 계정('')이 없으면 OK
+sudo mariadb -e "SELECT User, Host FROM mysql.user;"
+```
+
+> root 비밀번호를 설정했다면 잊어버리지 않게 적어 두세요. 앱은 root가 아니라 2-4에서 만드는 `board` 계정을 사용합니다.
+
+### 2-3. 스키마 생성
 
 `schema.sql`은 `board` 데이터베이스와 `posts`, `comments` 테이블을 만듭니다.
 
@@ -82,9 +110,7 @@ sudo mariadb < schema.sql
 sudo mariadb -e "SHOW DATABASES;"
 ```
 
-> **`mariadb` 명령에는 항상 `sudo`를 붙입니다.** MariaDB의 root 계정은 비밀번호 대신 "리눅스 root 사용자인가"로 로그인을 허용합니다. `sudo` 없이 실행하면 `Access denied for user 'ec2-user'@'localhost'`가 납니다.
-
-### 2-3. 앱 계정 만들기
+### 2-4. 앱 계정 만들기
 
 앱이 사용할 `board` 계정을 만들고, `board` 데이터베이스에 대한 권한을 줍니다.
 
@@ -106,7 +132,7 @@ SHOW GRANTS FOR 'board'@'10.0.1.%';
 EXIT;
 ```
 
-### 2-4. 외부 접속 허용
+### 2-5. 외부 접속 허용
 
 MariaDB가 `127.0.0.1`에서만 기다리고 있으면 웹 EC2에서 접속할 수 없습니다.
 
@@ -152,9 +178,9 @@ mariadb -h <DB EC2 프라이빗 IP> -u board -p board
 | 에러 | 원인 |
 | --- | --- |
 | 한참 멈춘 뒤 timeout | `db-sg` 3306 인바운드, `DB EC2 프라이빗 IP` 오타 |
-| `Connection refused` | MariaDB 꺼짐, `bind-address` (2-4) |
+| `Connection refused` | MariaDB 꺼짐, `bind-address` (2-5) |
 | `1045 Access denied ... (using password: YES)` | 비밀번호, 계정의 호스트(`10.0.1.%`) |
-| `1044 Access denied ... to database 'board'` | `GRANT` 누락 (2-3) |
+| `1044 Access denied ... to database 'board'` | `GRANT` 누락 (2-4) |
 
 ### 3-3. 코드 받기
 
@@ -195,7 +221,7 @@ vi .env
 | `DB_HOST` | DB EC2 **프라이빗** IP (`10.0.2.x`) |
 | `DB_PORT` | `3306` |
 | `DB_USER` | `board` |
-| `DB_PASSWORD` | 2-3에서 정한 비밀번호 |
+| `DB_PASSWORD` | 2-4에서 정한 비밀번호 |
 | `DB_NAME` | `board` |
 
 `.env`도 `app/` 폴더 안에 있어야 앱이 읽습니다.
