@@ -59,6 +59,7 @@ DB EC2에서 조회한 결과로, 브라우저에서 쓴 글·댓글이 그대�
 | --- | --- |
 | [서버 설정](infra/server/server-setup.md) | EC2 접속 · MariaDB · Gunicorn · Nginx 설정 |
 | [문제 해결](infra/server/troubleshooting.md) | 증상별 확인 사항 |
+| [네트워크 트러블슈팅](infra/network-troubleshooting.md) | 보안 그룹 vs 네트워크 ACL 차단 실험 |
 
 ## App
 
