@@ -4,8 +4,8 @@
 
 | 실험 | 막은 곳 | 확인하려는 것 |
 | --- | --- | --- |
-| 1-1 | 보안 그룹 인바운드 (`db-sg` 3306 제거) | 방화벽에서 막히면 → **timeout** |
-| 1-2 | MariaDB 서비스 중지 | 서버에는 닿았는데 포트가 닫혀 있으면 → **Connection refused** |
+| 1-1 | 보안 그룹 인바운드 (`db-sg` 3306 제거) | 방화벽에서 막히면 → 기다리다 **timeout** |
+| 1-2 | MariaDB 서비스 중지 | 서버에는 닿았는데 포트가 닫혀 있으면 → 즉시 **Connection refused** |
 | 2 | 네트워크 ACL 인바운드 (임시 포트 5555 거부) | NACL은 stateless라서 **응답 패킷도** 따로 막힌다 |
 
 ## 실험 환경
@@ -15,19 +15,43 @@
 | 웹 EC2 | `board-public` (`10.0.1.0/24`), 보안 그룹 `web-sg` |
 | DB EC2 | `board-private` (`10.0.2.0/24`), 보안 그룹 `db-sg` |
 | 네트워크 ACL | 두 서브넷이 VPC의 **기본 NACL 하나**를 함께 사용 (모두 허용) |
-| 앱의 DB 연결 제한 시간 | `connect_timeout=5` ([`db.py`](../app/db.py)) |
+| 확인 도구 | `nc`(ncat): 앱·DB 로그인을 거치지 않고 **TCP 연결만** 시도 |
+
+### 왜 `curl /health`가 아니라 `nc`인가
+
+`/health`는 **네트워크 → MariaDB 프로세스 → DB 로그인 → 권한**을 한 번에 거치므로, 실패했을 때 어느 단계에서 막혔는지 바로 알기 어렵습니다.
+`nc`는 **TCP 연결(3-way handshake)만** 시도합니다. 그래서 "포트까지 길이 열려 있는가, 포트에서 누가 기다리고 있는가"만 따로 떼어 확인할 수 있습니다.
+
+| `nc` 결과 | 의미 | 다음에 볼 곳 |
+| --- | --- | --- |
+| `Connected to ...` | 네트워크·포트 모두 정상 | DB 계정, 비밀번호, 권한 (`/health` 에러 코드) |
+| 즉시 `Connection refused.` | 서버에는 닿았지만 포트에서 기다리는 프로세스가 없음 | MariaDB 실행 여부, `bind-address` |
+| 기다리다 `TIMEOUT.` | 가는 길 또는 돌아오는 길에서 패킷이 사라짐 | 보안 그룹, NACL, 라우팅 테이블 |
+
+### 준비
+
+```bash
+# [웹 EC2] ncat 설치
+sudo dnf install -y nmap-ncat
+```
 
 실험 전 정상 상태를 먼저 기록합니다.
 
 ```bash
-# [웹 EC2]
-time curl http://127.0.0.1:8000/health
-# {"db":"connected","status":"ok"}, 0.0x초
+# [웹 EC2] -v: 과정 출력, -w 5: 연결을 5초까지만 기다림
+time nc -v -w 5 <DB EC2 프라이빗 IP> 3306
 ```
+
+```
+Ncat: Version 7.xx ( https://nmap.org/ncat )
+Ncat: Connected to 10.0.2.x:3306.
+```
+
+연결되면 MariaDB가 보내는 첫 인사 메시지(`5.5.5-10.5.xx-MariaDB`)가 깨진 글자로 보입니다. `Ctrl+C`로 종료합니다.
 
 ---
 
-## 실험 1. 보안 그룹 인바운드 차단
+## 실험 1. 보안 그룹 차단 vs MariaDB 중지
 
 ### 1-1. `db-sg`에서 3306 인바운드 규칙 제거
 
@@ -37,26 +61,28 @@ EC2 콘솔 → 보안 그룹 → `db-sg` → 인바운드 규칙 편집 → `MyS
 
 ```bash
 # [웹 EC2]
-time curl http://127.0.0.1:8000/health
+time nc -v -w 5 <DB EC2 프라이빗 IP> 3306
 ```
 
 **예상 결과**
 
 ```
-{"db":"(2003, \"Can't connect to MySQL server on '10.0.2.x' (timed out)\")","status":"error"}
+Ncat: Version 7.xx ( https://nmap.org/ncat )
+Ncat: TIMEOUT.
+
 real    0m5.0xs
 ```
 
-- 에러가 바로 나지 않고 **약 5초를 기다린 뒤** timeout이 납니다.
+- 에러가 바로 나지 않고 **`-w 5`로 정한 5초를 다 기다린 뒤** `TIMEOUT`이 납니다.
 - DB EC2에 SSH로 접속해 보면 `systemctl is-active mariadb`가 `active`입니다. DB는 정상이고 네트워크에서 막혔다는 뜻입니다(22번 규칙은 남아 있어 SSH는 됩니다).
 
 **원인**
 
-보안 그룹은 허용 규칙에 없는 패킷을 **아무 응답 없이 버립니다(drop).** 웹 EC2는 거부 응답조차 받지 못하니 `connect_timeout`(5초)이 지날 때까지 기다리다 포기합니다.
+보안 그룹은 허용 규칙에 없는 패킷을 **아무 응답 없이 버립니다(drop).** 웹 EC2는 연결 요청(SYN)을 보냈지만 거부 응답조차 받지 못하니, 정해 둔 시간이 지날 때까지 기다리다 포기합니다.
 
 **복구**
 
-`db-sg` 인바운드에 `MySQL/Aurora`, `3306`, 소스 `web-sg`를 다시 추가합니다.
+`db-sg` 인바운드에 `MySQL/Aurora`, `3306`, 소스 `web-sg`를 다시 추가하고, `nc`가 다시 `Connected`인지 확인합니다.
 
 ### 1-2. (비교) MariaDB 서비스 중지
 
@@ -67,17 +93,20 @@ real    0m5.0xs
 ```bash
 # [DB EC2]
 sudo systemctl stop mariadb
+systemctl is-active mariadb    # inactive
 ```
 
 ```bash
 # [웹 EC2]
-time curl http://127.0.0.1:8000/health
+time nc -v -w 5 <DB EC2 프라이빗 IP> 3306
 ```
 
 **예상 결과**
 
 ```
-{"db":"(2003, \"Can't connect to MySQL server on '10.0.2.x' ([Errno 111] Connection refused)\")","status":"error"}
+Ncat: Version 7.xx ( https://nmap.org/ncat )
+Ncat: Connection refused.
+
 real    0m0.0xs
 ```
 
@@ -98,13 +127,13 @@ sudo systemctl start mariadb
 
 | | 1-1 보안 그룹 차단 | 1-2 MariaDB 중지 |
 | --- | --- | --- |
-| 에러 | `timed out` | `Connection refused` |
-| 걸린 시간 | 약 5초 (`connect_timeout`) | 즉시 |
+| `nc` 결과 | `TIMEOUT.` | `Connection refused.` |
+| 걸린 시간 | 약 5초 (`-w 5`를 다 채움) | 즉시 |
 | 패킷이 DB EC2에 도착했나 | 아니오 (보안 그룹에서 버려짐) | 예 |
 | 누가 응답했나 | 아무도 | DB EC2의 OS (RST) |
 | 먼저 볼 곳 | 보안 그룹, NACL, 라우팅 | `systemctl status mariadb`, `bind-address` |
 
-> **정리:** timeout은 "가는 길 어딘가에서 사라졌다", `Connection refused`는 "도착은 했는데 문이 닫혀 있다"입니다. 에러 종류만 보고도 네트워크 문제인지 서버 문제인지 나눌 수 있습니다.
+> **정리:** timeout은 "가는 길 어딘가에서 사라졌다", `Connection refused`는 "도착은 했는데 문이 닫혀 있다"입니다. 에러 종류와 걸린 시간만 보고도 네트워크 문제인지 서버 문제인지 나눌 수 있습니다.
 
 ---
 
@@ -124,12 +153,7 @@ TCP 연결에서 웹 EC2는 **출발지 포트로 임시 포트(ephemeral port, 
 
 웹 EC2의 출발지 포트를 5555로 고정해서 이 상황을 만듭니다. 앱(`/health`)은 출발지 포트를 고를 수 없으므로 `nc`(ncat)로 직접 접속합니다.
 
-### 준비
-
-```bash
-# [웹 EC2] ncat 설치
-sudo dnf install -y nmap-ncat
-```
+### 대조군 확인
 
 ```bash
 # [웹 EC2] 대조군: 출발지 포트 5556으로 접속 → 성공해야 함
