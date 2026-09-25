@@ -26,7 +26,7 @@
 | --- | --- | --- |
 | `Connected to ...` | 네트워크·포트 모두 정상 | DB 계정, 비밀번호, 권한 (`/health` 에러 코드) |
 | 즉시 `Connection refused.` | 서버에는 닿았지만 포트에서 기다리는 프로세스가 없음 | MariaDB 실행 여부, `bind-address` |
-| 기다리다 `TIMEOUT.` | 가는 길 또는 돌아오는 길에서 패킷이 사라짐 | 보안 그룹, NACL, 라우팅 테이블 |
+| 10초 기다린 뒤 `TIMEOUT.` | 가는 길 또는 돌아오는 길에서 패킷이 사라짐 | 보안 그룹, NACL, 라우팅 테이블 |
 
 ### 준비
 
@@ -38,16 +38,17 @@ sudo dnf install -y nmap-ncat
 실험 전 정상 상태를 먼저 기록합니다.
 
 ```bash
-# [웹 EC2] -v: 과정 출력, -w 5: 연결을 5초까지만 기다림
-time nc -v -w 5 <DB EC2 프라이빗 IP> 3306
+# [웹 EC2] -z: 데이터를 주고받지 않고 연결만 확인 후 종료, -v: 과정 출력
+time nc -zv <DB EC2 프라이빗 IP> 3306
 ```
 
 ```
-Ncat: Version 7.xx ( https://nmap.org/ncat )
-Ncat: Connected to 10.0.2.x:3306.
-```
+Ncat: Version 7.93 ( https://nmap.org/ncat )
+Ncat: Connected to 10.0.2.10:3306.
+Ncat: 0 bytes sent, 0 bytes received in 0.01 seconds.
 
-연결되면 MariaDB가 보내는 첫 인사 메시지(`5.5.5-10.5.xx-MariaDB`)가 깨진 글자로 보입니다. `Ctrl+C`로 종료합니다.
+real    0m0.016s
+```
 
 ---
 
@@ -61,19 +62,19 @@ EC2 콘솔 → 보안 그룹 → `db-sg` → 인바운드 규칙 편집 → `MyS
 
 ```bash
 # [웹 EC2]
-time nc -v -w 5 <DB EC2 프라이빗 IP> 3306
+time nc -zv <DB EC2 프라이빗 IP> 3306
 ```
 
-**예상 결과**
+**결과**
 
 ```
-Ncat: Version 7.xx ( https://nmap.org/ncat )
+Ncat: Version 7.93 ( https://nmap.org/ncat )
 Ncat: TIMEOUT.
 
-real    0m5.0xs
+real    0m10.026s
 ```
 
-- 에러가 바로 나지 않고 **`-w 5`로 정한 5초를 다 기다린 뒤** `TIMEOUT`이 납니다.
+- 에러가 바로 나지 않고 **ncat의 기본 연결 제한 시간인 10초를 다 기다린 뒤** `TIMEOUT`이 납니다. (`-w 5`처럼 옵션을 주면 그 시간만큼 기다립니다.)
 - DB EC2에 SSH로 접속해 보면 `systemctl is-active mariadb`가 `active`입니다. DB는 정상이고 네트워크에서 막혔다는 뜻입니다(22번 규칙은 남아 있어 SSH는 됩니다).
 
 **원인**
@@ -98,19 +99,19 @@ systemctl is-active mariadb    # inactive
 
 ```bash
 # [웹 EC2]
-time nc -v -w 5 <DB EC2 프라이빗 IP> 3306
+time nc -zv <DB EC2 프라이빗 IP> 3306
 ```
 
-**예상 결과**
+**결과**
 
 ```
-Ncat: Version 7.xx ( https://nmap.org/ncat )
+Ncat: Version 7.93 ( https://nmap.org/ncat )
 Ncat: Connection refused.
 
-real    0m0.0xs
+real    0m0.015s
 ```
 
-- 에러가 **즉시** 납니다.
+- 에러가 **즉시(0.015초)** 납니다. 정상 연결(0.016초)과 걸린 시간이 거의 같습니다. 거부 응답이 정상 응답만큼 빨리 돌아왔다는 뜻입니다.
 
 **원인**
 
@@ -125,13 +126,17 @@ sudo systemctl start mariadb
 
 ### 1-1과 1-2 비교
 
-| | 1-1 보안 그룹 차단 | 1-2 MariaDB 중지 |
-| --- | --- | --- |
-| `nc` 결과 | `TIMEOUT.` | `Connection refused.` |
-| 걸린 시간 | 약 5초 (`-w 5`를 다 채움) | 즉시 |
-| 패킷이 DB EC2에 도착했나 | 아니오 (보안 그룹에서 버려짐) | 예 |
-| 누가 응답했나 | 아무도 | DB EC2의 OS (RST) |
-| 먼저 볼 곳 | 보안 그룹, NACL, 라우팅 | `systemctl status mariadb`, `bind-address` |
+![nc 결과: 정상 / 보안 그룹 차단 / MariaDB 중지](../images/secure_group.png)
+
+위에서부터 **정상 → `db-sg` 3306 제거 → MariaDB 중지** 순서로 같은 명령을 실행한 결과입니다.
+
+| | 정상 | 1-1 보안 그룹 차단 | 1-2 MariaDB 중지 |
+| --- | --- | --- | --- |
+| `nc` 결과 | `Connected` | `TIMEOUT.` | `Connection refused.` |
+| 걸린 시간 | 0.016초 | **10.026초** (기본 제한 시간을 다 채움) | **0.015초** |
+| 패킷이 DB EC2에 도착했나 | 예 | 아니오 (보안 그룹에서 버려짐) | 예 |
+| 누가 응답했나 | MariaDB | 아무도 | DB EC2의 OS (RST) |
+| 먼저 볼 곳 | - | 보안 그룹, NACL, 라우팅 | `systemctl status mariadb`, `bind-address` |
 
 > **정리:** timeout은 "가는 길 어딘가에서 사라졌다", `Connection refused`는 "도착은 했는데 문이 닫혀 있다"입니다. 에러 종류와 걸린 시간만 보고도 네트워크 문제인지 서버 문제인지 나눌 수 있습니다.
 
@@ -156,9 +161,8 @@ TCP 연결에서 웹 EC2는 **출발지 포트로 임시 포트(ephemeral port, 
 ### 대조군 확인
 
 ```bash
-# [웹 EC2] 대조군: 출발지 포트 5556으로 접속 → 성공해야 함
-nc -v -w 5 -p 5556 <DB EC2 프라이빗 IP> 3306
-# Connected to 10.0.2.x:3306. 이 나오고 MariaDB 인사 메시지(5.5.5-10.5.xx-MariaDB)가 깨진 글자로 보이면 성공. Ctrl+C로 종료
+# [웹 EC2] 대조군: 출발지 포트 5556으로 접속 → Connected 가 나와야 함
+time nc -zv -p 5556 <DB EC2 프라이빗 IP> 3306
 ```
 
 ### 재현
@@ -174,18 +178,18 @@ VPC 콘솔 → 네트워크 ACL → 두 서브넷이 연결된 NACL → **인바
 
 ```bash
 # [웹 EC2] 출발지 포트 5555로 접속
-nc -v -w 5 -p 5555 <DB EC2 프라이빗 IP> 3306
+time nc -zv -p 5555 <DB EC2 프라이빗 IP> 3306
 
 # [웹 EC2] 대조군: 5556은 여전히 성공
-nc -v -w 5 -p 5556 <DB EC2 프라이빗 IP> 3306
+time nc -zv -p 5556 <DB EC2 프라이빗 IP> 3306
 ```
 
 **예상 결과**
 
 | 출발지 포트 | 결과 |
 | --- | --- |
-| `5555` | 5초 후 `TIMEOUT` |
-| `5556` | `Connected to 10.0.2.x:3306.` |
+| `5555` | 10초 후 `TIMEOUT.` |
+| `5556` | 즉시 `Connected to 10.0.2.10:3306.` |
 
 **요청이 DB에 도착했다는 증거 (선택)**
 
